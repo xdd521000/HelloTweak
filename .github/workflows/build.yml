@@ -1,0 +1,26 @@
+name: Build HelloTweak
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git "$THEOS"
+          "$THEOS/setup.sh" || true
+        env:
+          THEOS: "$HOME/theos"
+      - name: Build
+        run: |
+          make clean
+          make package
+        env:
+          THEOS: "$HOME/theos"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HelloTweak-deb
+          path: packages/*.deb
