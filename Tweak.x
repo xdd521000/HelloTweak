@@ -1,5 +1,5 @@
 //
-//  Tweak.x — 微信版插件
+//  Tweak.x — 小叮当（微信增强插件）
 //  功能1：打开微信时弹出欢迎提示
 //  功能2：微信防撤回（好友撤回的消息仍然保留）
 //
@@ -18,8 +18,8 @@ static void showHelloPopup(void) {
     shown = YES;
 
     UIAlertController *alert = [UIAlertController
-        alertControllerWithTitle:@"🎉 微信插件已生效"
-                         message:@"这是你的微信版越狱插件！\n\n设备：iPhone 14 Pro Max\n系统：iOS 16.2\n越狱：Dopamine"
+        alertControllerWithTitle:@"🔔 小叮当已生效"
+                         message:@"小叮当：微信增强插件\n\n设备：iPhone 14 Pro Max\n系统：iOS 16.2\n越狱：Dopamine"
                   preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleDefault handler:nil]];
 
