@@ -1,19 +1,17 @@
 //
 //  Tweak.x — 微信版插件
-//  打开微信后，弹出一个欢迎提示框
-//
-//  这次用 %ctor（插件加载时自动运行的代码）来弹窗，
-//  不依赖微信内部的类名，更稳定
+//  功能1：打开微信时弹出欢迎提示
+//  功能2：微信防撤回（好友撤回的消息仍然保留）
 //
 
 #import <UIKit/UIKit.h>
 
-// 弹窗函数：保证只弹一次
+// ================= 功能1：欢迎弹窗 =================
+
 static void showHelloPopup(void) {
     static BOOL shown = NO;
     if (shown) return;
 
-    // 拿到微信的主窗口（注意：这里用了过时的 windows，已在 Makefile 里忽略警告）
     UIWindow *window = [UIApplication sharedApplication].windows.firstObject;
     if (!window || !window.rootViewController) return;
 
@@ -28,8 +26,7 @@ static void showHelloPopup(void) {
     [window.rootViewController presentViewController:alert animated:YES completion:nil];
 }
 
-// %ctor：插件被加载进微信时自动执行（相当于程序入口）
-// 分 5 次尝试弹窗（2秒、4秒…10秒），确保微信窗口已就绪，弹一次就停
+// %ctor：插件加载时自动运行，分几次尝试弹窗确保窗口就绪
 %ctor {
     for (NSInteger i = 0; i < 5; i++) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * (i + 1) * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
@@ -37,3 +34,24 @@ static void showHelloPopup(void) {
         });
     }
 }
+
+// ================= 功能2：防撤回 =================
+//
+// CMessageMgr 是微信的消息管理器（私有类，编译器不认识，手动声明）
+// 微信收到"有人撤回消息"的通知时，会调用它的 onRevokeMsg: 方法
+// 我们把这个方法拦下来、不执行原始逻辑，撤回就失效了
+//
+
+@interface CMessageMgr : NSObject
+- (void)onRevokeMsg:(id)arg;
+@end
+
+%hook CMessageMgr
+
+- (void)onRevokeMsg:(id)arg {
+    // ★ 关键：不调用 %orig，撤回通知被拦截，消息原样保留
+    // 注意：这个简单版连"你自己撤回"的消息也会保留（多数防撤回插件都是这样）
+    // 想更精细（只拦别人、放行自己），需要解析 arg 里的发送者信息，后面可以进阶
+}
+
+%end
