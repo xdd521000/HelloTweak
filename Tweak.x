@@ -2,8 +2,8 @@
 //  Tweak.x — 小叮当（微信增强插件）
 //  功能：
 //    1. 微信设置页「小叮当」入口（新接口 WCTableViewManager，适配 8.0.70）
-//    2. 微信防撤回开关
-//    3. 自定义撤回提示语
+//    2. 主菜单分两类：常用功能（防撤回/撤回提示）、红包功能（自动抢红包）
+//    3. 防撤回开关 + 自定义撤回提示语
 //    4. 自动抢红包（延迟秒数 / 只抢群聊 / 只抢单聊 / 防重复）
 //  说明：不弹窗，所有设置都在微信设置里操作。
 //
@@ -23,6 +23,8 @@ static NSString *const kGrabDelayKey = @"GrabDelaySeconds";
 static NSString *const kGrabGroupKey = @"GrabGroupChat";
 static NSString *const kGrabSingleKey = @"GrabSingleChat";
 static NSString *const kGrabbedSendIdsKey = @"GrabbedSendIds";
+static NSString *const kWallpaperKey = @"WallpaperData";
+static NSString *const kDevNameKey = @"DevName";
 
 static NSUserDefaults *xddPrefs(void) {
     return [[NSUserDefaults alloc] initWithSuiteName:kPrefsSuite];
@@ -78,6 +80,31 @@ static BOOL grabSingleChatEnabled(void) {
 }
 static void setGrabSingleChatEnabled(BOOL v) {
     NSUserDefaults *p = xddPrefs(); [p setBool:v forKey:kGrabSingleKey]; [p synchronize];
+}
+
+// 壁纸数据
+static NSData *xddWallpaperData(void) {
+    return [xddPrefs() dataForKey:kWallpaperKey];
+}
+static void setXddWallpaperData(NSData *d) {
+    NSUserDefaults *p = xddPrefs();
+    if (d) {
+        [p setObject:d forKey:kWallpaperKey];
+    } else {
+        [p removeObjectForKey:kWallpaperKey];
+    }
+    [p synchronize];
+}
+
+// 开发者信息
+static NSString *xddDevName(void) {
+    NSString *n = [xddPrefs() stringForKey:kDevNameKey];
+    return (n.length > 0) ? n : @"xdd521000";
+}
+static void setXddDevName(NSString *n) {
+    NSUserDefaults *p = xddPrefs();
+    [p setObject:n forKey:kDevNameKey];
+    [p synchronize];
 }
 
 // 防重复：已经抢过的红包 sendId 集合
@@ -202,10 +229,20 @@ static void showRecallToast(NSString *text) {
 @end
 
 // ============================================================
-//  4. 小叮当设置页
+//  4. 小叮当设置页（深空蓝调：主菜单 + 常用功能 + 红包功能）
 // ============================================================
 
-@interface XDDSettingsViewController : UIViewController
+static UIColor *xddDeepSpaceColor(void) {
+    return [UIColor colorWithRed:0.04 green:0.07 blue:0.13 alpha:1.0];
+}
+
+@interface XDDSettingsViewController : UIViewController <UIImagePickerControllerDelegate, UINavigationControllerDelegate>
+@end
+
+@interface XDDCommonViewController : UIViewController
+@end
+
+@interface XDDRedPacketViewController : UIViewController
 @end
 
 @implementation XDDSettingsViewController
@@ -213,105 +250,238 @@ static void showRecallToast(NSString *text) {
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = @"小叮当";
-    self.view.backgroundColor = [UIColor whiteColor];
+    self.view.backgroundColor = xddDeepSpaceColor();
 
-    // --- 微信防撤回 ---
-    UILabel *label1 = [[UILabel alloc] initWithFrame:CGRectMake(20, 100, 200, 30)];
-    label1.text = @"微信防撤回";
-    label1.font = [UIFont systemFontOfSize:17];
-    [self.view addSubview:label1];
+    // 自定义壁纸（如果之前保存过照片）
+    NSData *wpData = xddWallpaperData();
+    if (wpData) {
+        UIImage *wpImg = [UIImage imageWithData:wpData];
+        if (wpImg) {
+            UIImageView *bg = [[UIImageView alloc] initWithFrame:self.view.bounds];
+            bg.image = wpImg;
+            bg.contentMode = UIViewContentModeScaleAspectFill;
+            bg.clipsToBounds = YES;
+            [self.view insertSubview:bg atIndex:0];
+        }
+    }
 
-    UISwitch *sw1 = [[UISwitch alloc] initWithFrame:CGRectMake(self.view.bounds.size.width - 70, 102, 50, 30)];
-    sw1.on = antiRevokeEnabled();
-    [sw1 addTarget:self action:@selector(switchChanged:) forControlEvents:UIControlEventValueChanged];
-    sw1.tag = 101;
-    [self.view addSubview:sw1];
+    // 顶部居中：插件名 + 开发者信息
+    UILabel *nameLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 110, self.view.bounds.size.width - 40, 36)];
+    nameLabel.text = @"小叮当";
+    nameLabel.font = [UIFont boldSystemFontOfSize:26];
+    nameLabel.textColor = [UIColor colorWithRed:0.92 green:0.96 blue:1.0 alpha:1.0];
+    nameLabel.textAlignment = NSTextAlignmentCenter;
+    [self.view addSubview:nameLabel];
 
-    // --- 撤回提示（开关）---
-    UILabel *label2 = [[UILabel alloc] initWithFrame:CGRectMake(20, 145, 260, 26)];
-    label2.text = @"撤回提示";
-    label2.font = [UIFont systemFontOfSize:15];
-    [self.view addSubview:label2];
+    UILabel *devLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 150, self.view.bounds.size.width - 40, 20)];
+    devLabel.text = [NSString stringWithFormat:@"开发者：%@", xddDevName()];
+    devLabel.font = [UIFont systemFontOfSize:13];
+    devLabel.textColor = [UIColor colorWithRed:0.5 green:0.64 blue:0.8 alpha:1.0];
+    devLabel.textAlignment = NSTextAlignmentCenter;
+    devLabel.tag = 1001;
+    devLabel.userInteractionEnabled = YES;
+    [self.view addSubview:devLabel];
 
-    UISwitch *sw2 = [[UISwitch alloc] initWithFrame:CGRectMake(self.view.bounds.size.width - 70, 142, 50, 30)];
-    sw2.on = revokeToastEnabled();
-    [sw2 addTarget:self action:@selector(switchChanged:) forControlEvents:UIControlEventValueChanged];
-    sw2.tag = 102;
-    [self.view addSubview:sw2];
+    // 长按开发者信息 → 弹窗修改开发者信息
+    UILongPressGestureRecognizer *devLp = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(xddDevLabelLongPress:)];
+    devLp.minimumPressDuration = 0.5;
+    [devLabel addGestureRecognizer:devLp];
 
-    // --- 撤回提示语内容 ---
-    UILabel *label3 = [[UILabel alloc] initWithFrame:CGRectMake(20, 185, 260, 26)];
-    label3.text = @"撤回提示语（拦截时显示）";
-    label3.font = [UIFont systemFontOfSize:15];
-    [self.view addSubview:label3];
+    // 常用功能入口（无图标、无说明文字）
+    UIButton *commonBtn = [self xddMenuCellWithTitle:@"常用功能" y:210 tag:1];
+    [self.view addSubview:commonBtn];
 
-    UITextField *noticeField = [[UITextField alloc] initWithFrame:CGRectMake(20, 215, self.view.bounds.size.width - 40, 34)];
+    // 红包功能入口
+    UIButton *redBtn = [self xddMenuCellWithTitle:@"红包功能" y:278 tag:2];
+    [self.view addSubview:redBtn];
+
+    // 长按背景 5 秒 → 弹出相册换壁纸
+    UILongPressGestureRecognizer *wpLp = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(xddWallpaperLongPress:)];
+    wpLp.minimumPressDuration = 5.0;
+    [self.view addGestureRecognizer:wpLp];
+}
+
+- (UIButton *)xddMenuCellWithTitle:(NSString *)title y:(CGFloat)y tag:(NSInteger)tag {
+    UIButton *btn = [UIButton buttonWithType:UIButtonTypeSystem];
+    btn.frame = CGRectMake(20, y, self.view.bounds.size.width - 40, 56);
+    btn.backgroundColor = [UIColor colorWithRed:0.12 green:0.18 blue:0.29 alpha:0.55];
+    btn.layer.cornerRadius = 18;
+    btn.layer.borderWidth = 1;
+    btn.layer.borderColor = [UIColor colorWithRed:0.43 green:0.71 blue:1.0 alpha:0.22].CGColor;
+    btn.tag = tag;
+    [btn addTarget:self action:@selector(menuTapped:) forControlEvents:UIControlEventTouchUpInside];
+
+    UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(24, 0, 180, 56)];
+    titleLabel.text = title;
+    titleLabel.font = [UIFont boldSystemFontOfSize:17];
+    titleLabel.textColor = [UIColor colorWithRed:0.91 green:0.95 blue:1.0 alpha:1.0];
+    [btn addSubview:titleLabel];
+
+    UILabel *chev = [[UILabel alloc] initWithFrame:CGRectMake(btn.bounds.size.width - 42, 11, 26, 34)];
+    chev.text = @"›";
+    chev.font = [UIFont systemFontOfSize:28];
+    chev.textColor = [UIColor colorWithRed:0.4 green:0.78 blue:1.0 alpha:1.0];
+    [btn addSubview:chev];
+
+    return btn;
+}
+
+- (void)menuTapped:(UIButton *)sender {
+    UIViewController *vc = nil;
+    if (sender.tag == 1) {
+        vc = [[XDDCommonViewController alloc] init];
+    } else if (sender.tag == 2) {
+        vc = [[XDDRedPacketViewController alloc] init];
+    }
+    if (vc) [self.navigationController pushViewController:vc animated:YES];
+}
+
+// 长按背景 5 秒 → 弹出相册选照片设为壁纸
+- (void)xddWallpaperLongPress:(UILongPressGestureRecognizer *)gr {
+    if (gr.state != UIGestureRecognizerStateBegan) return;
+    if ([UIImagePickerController isSourceTypeAvailable:UIImagePickerControllerSourceTypePhotoLibrary]) {
+        UIImagePickerController *picker = [[UIImagePickerController alloc] init];
+        picker.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
+        picker.delegate = self;
+        picker.allowsEditing = YES;
+        [self presentViewController:picker animated:YES completion:nil];
+    }
+}
+
+- (void)imagePickerController:(UIImagePickerController *)picker didFinishPickingMediaWithInfo:(NSDictionary *)info {
+    UIImage *image = info[UIImagePickerControllerEditedImage];
+    if (!image) image = info[UIImagePickerControllerOriginalImage];
+    [picker dismissViewControllerAnimated:YES completion:nil];
+    if (!image) return;
+    NSData *data = UIImageJPEGRepresentation(image, 0.8);
+    setXddWallpaperData(data);
+    UIImageView *bg = [[UIImageView alloc] initWithFrame:self.view.bounds];
+    bg.image = image;
+    bg.contentMode = UIViewContentModeScaleAspectFill;
+    bg.clipsToBounds = YES;
+    [self.view insertSubview:bg atIndex:0];
+}
+
+- (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker {
+    [picker dismissViewControllerAnimated:YES completion:nil];
+}
+
+// 长按开发者信息 → 输入暗号「我爱你」修改开发者信息，输错提示错误
+- (void)xddDevLabelLongPress:(UILongPressGestureRecognizer *)gr {
+    if (gr.state != UIGestureRecognizerStateBegan) return;
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"开发者信息" message:@"请输入暗号来修改开发者信息" preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) {
+        tf.placeholder = @"请输入暗号";
+    }];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        NSString *input = [alert.textFields.firstObject.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if ([input isEqualToString:@"我爱你"]) {
+            [self xddPromptNewDevName];
+        } else {
+            UIAlertController *err = [UIAlertController alertControllerWithTitle:@"提示" message:@"暗号错误！" preferredStyle:UIAlertControllerStyleAlert];
+            [err addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+            [self presentViewController:err animated:YES completion:nil];
+        }
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)xddPromptNewDevName {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"修改开发者信息" message:@"请输入新的开发者信息" preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) {
+        tf.text = xddDevName();
+        tf.placeholder = @"开发者信息";
+    }];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        NSString *newName = [alert.textFields.firstObject.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if (newName.length > 0) {
+            setXddDevName(newName);
+            [self xddRefreshDevLabel];
+        }
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)xddRefreshDevLabel {
+    UILabel *devLabel = [self.view viewWithTag:1001];
+    if (devLabel && [devLabel isKindOfClass:[UILabel class]]) {
+        devLabel.text = [NSString stringWithFormat:@"开发者：%@", xddDevName()];
+    }
+}
+
+@end
+
+@implementation XDDCommonViewController
+
+- (UIView *)xddCardWithFrame:(CGRect)frame {
+    UIView *card = [[UIView alloc] initWithFrame:frame];
+    card.backgroundColor = [UIColor colorWithRed:0.12 green:0.18 blue:0.29 alpha:0.55];
+    card.layer.cornerRadius = 16;
+    card.layer.borderWidth = 1;
+    card.layer.borderColor = [UIColor colorWithRed:0.43 green:0.71 blue:1.0 alpha:0.18].CGColor;
+    [self.view addSubview:card];
+    return card;
+}
+
+- (UISwitch *)xddSwitchInCard:(UIView *)card on:(BOOL)on tag:(NSInteger)tag {
+    UISwitch *sw = [[UISwitch alloc] initWithFrame:CGRectMake(card.bounds.size.width - 62, 13, 50, 30)];
+    sw.on = on;
+    sw.tag = tag;
+    [sw addTarget:self action:@selector(switchChanged:) forControlEvents:UIControlEventValueChanged];
+    [card addSubview:sw];
+    return sw;
+}
+
+- (UILabel *)xddLabelInCard:(UIView *)card text:(NSString *)text {
+    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(16, 0, card.bounds.size.width - 100, 56)];
+    label.text = text;
+    label.font = [UIFont systemFontOfSize:16];
+    label.textColor = [UIColor colorWithRed:0.9 green:0.95 blue:1.0 alpha:1.0];
+    [card addSubview:label];
+    return label;
+}
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = @"常用功能";
+    self.view.backgroundColor = xddDeepSpaceColor();
+
+    // 微信防撤回
+    UIView *card1 = [self xddCardWithFrame:CGRectMake(20, 110, self.view.bounds.size.width - 40, 56)];
+    [self xddLabelInCard:card1 text:@"微信防撤回"];
+    [self xddSwitchInCard:card1 on:antiRevokeEnabled() tag:101];
+
+    // 撤回提示
+    UIView *card2 = [self xddCardWithFrame:CGRectMake(20, 176, self.view.bounds.size.width - 40, 56)];
+    [self xddLabelInCard:card2 text:@"撤回提示"];
+    [self xddSwitchInCard:card2 on:revokeToastEnabled() tag:102];
+
+    // 撤回提示语
+    UIView *card3 = [self xddCardWithFrame:CGRectMake(20, 242, self.view.bounds.size.width - 40, 56)];
+    [self xddLabelInCard:card3 text:@"撤回提示语"];
+    UITextField *noticeField = [[UITextField alloc] initWithFrame:CGRectMake(card3.bounds.size.width - 210, 10, 190, 36)];
     noticeField.borderStyle = UITextBorderStyleRoundedRect;
-    noticeField.font = [UIFont systemFontOfSize:14];
+    noticeField.backgroundColor = [UIColor colorWithRed:0.05 green:0.09 blue:0.16 alpha:0.9];
+    noticeField.textColor = [UIColor whiteColor];
+    noticeField.font = [UIFont systemFontOfSize:13];
     noticeField.text = revokeNoticeText();
-    noticeField.placeholder = @"对方撤回了一条消息（已被小叮当拦截）";
+    noticeField.placeholder = @"输入提示语";
     [noticeField addTarget:self action:@selector(noticeChanged:) forControlEvents:UIControlEventEditingChanged];
-    [self.view addSubview:noticeField];
+    [card3 addSubview:noticeField];
 
-    // --- 自动抢红包 ---
-    UILabel *label4 = [[UILabel alloc] initWithFrame:CGRectMake(20, 270, 200, 30)];
-    label4.text = @"自动抢红包";
-    label4.font = [UIFont systemFontOfSize:17];
-    [self.view addSubview:label4];
+    UILabel *hint = [[UILabel alloc] initWithFrame:CGRectMake(20, 310, self.view.bounds.size.width - 40, 30)];
+    hint.text = @"开启后，好友撤回的消息仍会保留在聊天记录里";
+    hint.font = [UIFont systemFontOfSize:12];
+    hint.textColor = [UIColor colorWithRed:0.5 green:0.62 blue:0.78 alpha:1.0];
+    [self.view addSubview:hint];
 
-    UISwitch *sw3 = [[UISwitch alloc] initWithFrame:CGRectMake(self.view.bounds.size.width - 70, 272, 50, 30)];
-    sw3.on = autoRedEnvelopEnabled();
-    [sw3 addTarget:self action:@selector(switchChanged:) forControlEvents:UIControlEventValueChanged];
-    sw3.tag = 103;
-    [self.view addSubview:sw3];
-
-    // 延迟秒数
-    UILabel *label5 = [[UILabel alloc] initWithFrame:CGRectMake(20, 315, 220, 26)];
-    label5.text = @"几秒后抢（0-10 秒）";
-    label5.font = [UIFont systemFontOfSize:15];
-    [self.view addSubview:label5];
-
-    UITextField *delayField = [[UITextField alloc] initWithFrame:CGRectMake(20, 347, 120, 34)];
-    delayField.borderStyle = UITextBorderStyleRoundedRect;
-    delayField.keyboardType = UIKeyboardTypeNumberPad;
-    delayField.font = [UIFont systemFontOfSize:14];
-    delayField.text = [NSString stringWithFormat:@"%ld", (long)grabDelaySeconds()];
-    delayField.placeholder = @"1";
-    [delayField addTarget:self action:@selector(delayChanged:) forControlEvents:UIControlEventEditingDidEnd];
-    [self.view addSubview:delayField];
-
-    // 抢群聊 / 抢单聊
-    UILabel *label6 = [[UILabel alloc] initWithFrame:CGRectMake(20, 395, 200, 26)];
-    label6.text = @"只抢群聊红包";
-    label6.font = [UIFont systemFontOfSize:15];
-    [self.view addSubview:label6];
-    UISwitch *sw5 = [[UISwitch alloc] initWithFrame:CGRectMake(self.view.bounds.size.width - 70, 393, 50, 30)];
-    sw5.on = grabGroupChatEnabled();
-    [sw5 addTarget:self action:@selector(switchChanged:) forControlEvents:UIControlEventValueChanged];
-    sw5.tag = 105;
-    [self.view addSubview:sw5];
-
-    UILabel *label7 = [[UILabel alloc] initWithFrame:CGRectMake(20, 433, 200, 26)];
-    label7.text = @"只抢单聊红包";
-    label7.font = [UIFont systemFontOfSize:15];
-    [self.view addSubview:label7];
-    UISwitch *sw6 = [[UISwitch alloc] initWithFrame:CGRectMake(self.view.bounds.size.width - 70, 431, 50, 30)];
-    sw6.on = grabSingleChatEnabled();
-    [sw6 addTarget:self action:@selector(switchChanged:) forControlEvents:UIControlEventValueChanged];
-    sw6.tag = 106;
-    [self.view addSubview:sw6];
-
-    UILabel *hint2 = [[UILabel alloc] initWithFrame:CGRectMake(20, 467, self.view.bounds.size.width - 40, 30)];
-    hint2.text = @"提示：抢红包有封号风险，请谨慎使用";
-    hint2.textColor = [UIColor orangeColor];
-    hint2.font = [UIFont systemFontOfSize:12];
-    [self.view addSubview:hint2];
-
-    // 版本
-    UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(20, 505, self.view.bounds.size.width - 40, 30)];
-    ver.text = @"小叮当 v0.0.8 ｜ 适配 iOS 16.2 / Dopamine";
-    ver.textColor = [UIColor lightGrayColor];
+    UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(20, 520, self.view.bounds.size.width - 40, 30)];
+    ver.text = @"小叮当 v0.0.9 ｜ 适配 iOS 16.2 / Dopamine";
     ver.font = [UIFont systemFontOfSize:12];
+    ver.textColor = [UIColor colorWithRed:0.28 green:0.38 blue:0.52 alpha:1.0];
+    ver.textAlignment = NSTextAlignmentCenter;
     [self.view addSubview:ver];
 }
 
@@ -319,15 +489,101 @@ static void showRecallToast(NSString *text) {
     switch (sender.tag) {
         case 101: setAntiRevokeEnabled(sender.isOn); break;
         case 102: setRevokeToastEnabled(sender.isOn); break;
-        case 103: setAutoRedEnvelopEnabled(sender.isOn); break;
-        case 105: setGrabGroupChatEnabled(sender.isOn); break;
-        case 106: setGrabSingleChatEnabled(sender.isOn); break;
         default: break;
     }
 }
 
 - (void)noticeChanged:(UITextField *)sender {
     setRevokeNoticeText(sender.text);
+}
+
+@end
+
+@implementation XDDRedPacketViewController
+
+- (UIView *)xddCardWithFrame:(CGRect)frame {
+    UIView *card = [[UIView alloc] initWithFrame:frame];
+    card.backgroundColor = [UIColor colorWithRed:0.12 green:0.18 blue:0.29 alpha:0.55];
+    card.layer.cornerRadius = 16;
+    card.layer.borderWidth = 1;
+    card.layer.borderColor = [UIColor colorWithRed:0.43 green:0.71 blue:1.0 alpha:0.18].CGColor;
+    [self.view addSubview:card];
+    return card;
+}
+
+- (UISwitch *)xddSwitchInCard:(UIView *)card on:(BOOL)on tag:(NSInteger)tag {
+    UISwitch *sw = [[UISwitch alloc] initWithFrame:CGRectMake(card.bounds.size.width - 62, 13, 50, 30)];
+    sw.on = on;
+    sw.tag = tag;
+    [sw addTarget:self action:@selector(switchChanged:) forControlEvents:UIControlEventValueChanged];
+    [card addSubview:sw];
+    return sw;
+}
+
+- (UILabel *)xddLabelInCard:(UIView *)card text:(NSString *)text {
+    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(16, 0, card.bounds.size.width - 100, 56)];
+    label.text = text;
+    label.font = [UIFont systemFontOfSize:16];
+    label.textColor = [UIColor colorWithRed:0.9 green:0.95 blue:1.0 alpha:1.0];
+    [card addSubview:label];
+    return label;
+}
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = @"红包功能";
+    self.view.backgroundColor = xddDeepSpaceColor();
+
+    // 自动抢红包
+    UIView *card1 = [self xddCardWithFrame:CGRectMake(20, 110, self.view.bounds.size.width - 40, 56)];
+    [self xddLabelInCard:card1 text:@"自动抢红包"];
+    [self xddSwitchInCard:card1 on:autoRedEnvelopEnabled() tag:103];
+
+    // 几秒后抢
+    UIView *card2 = [self xddCardWithFrame:CGRectMake(20, 176, self.view.bounds.size.width - 40, 56)];
+    [self xddLabelInCard:card2 text:@"几秒后抢（0-10 秒）"];
+    UITextField *delayField = [[UITextField alloc] initWithFrame:CGRectMake(card2.bounds.size.width - 85, 10, 65, 36)];
+    delayField.borderStyle = UITextBorderStyleRoundedRect;
+    delayField.keyboardType = UIKeyboardTypeNumberPad;
+    delayField.backgroundColor = [UIColor colorWithRed:0.05 green:0.09 blue:0.16 alpha:0.9];
+    delayField.textColor = [UIColor whiteColor];
+    delayField.font = [UIFont systemFontOfSize:14];
+    delayField.text = [NSString stringWithFormat:@"%ld", (long)grabDelaySeconds()];
+    delayField.placeholder = @"1";
+    [delayField addTarget:self action:@selector(delayChanged:) forControlEvents:UIControlEventEditingDidEnd];
+    [card2 addSubview:delayField];
+
+    // 只抢群聊红包
+    UIView *card3 = [self xddCardWithFrame:CGRectMake(20, 242, self.view.bounds.size.width - 40, 56)];
+    [self xddLabelInCard:card3 text:@"只抢群聊红包"];
+    [self xddSwitchInCard:card3 on:grabGroupChatEnabled() tag:105];
+
+    // 只抢单聊红包
+    UIView *card4 = [self xddCardWithFrame:CGRectMake(20, 308, self.view.bounds.size.width - 40, 56)];
+    [self xddLabelInCard:card4 text:@"只抢单聊红包"];
+    [self xddSwitchInCard:card4 on:grabSingleChatEnabled() tag:106];
+
+    UILabel *hint = [[UILabel alloc] initWithFrame:CGRectMake(20, 376, self.view.bounds.size.width - 40, 30)];
+    hint.text = @"⚠️ 提示：抢红包有封号风险，请谨慎使用";
+    hint.font = [UIFont systemFontOfSize:12];
+    hint.textColor = [UIColor colorWithRed:0.95 green:0.6 blue:0.3 alpha:1.0];
+    [self.view addSubview:hint];
+
+    UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(20, 520, self.view.bounds.size.width - 40, 30)];
+    ver.text = @"小叮当 v0.0.9 ｜ 适配 iOS 16.2 / Dopamine";
+    ver.font = [UIFont systemFontOfSize:12];
+    ver.textColor = [UIColor colorWithRed:0.28 green:0.38 blue:0.52 alpha:1.0];
+    ver.textAlignment = NSTextAlignmentCenter;
+    [self.view addSubview:ver];
+}
+
+- (void)switchChanged:(UISwitch *)sender {
+    switch (sender.tag) {
+        case 103: setAutoRedEnvelopEnabled(sender.isOn); break;
+        case 105: setGrabGroupChatEnabled(sender.isOn); break;
+        case 106: setGrabSingleChatEnabled(sender.isOn); break;
+        default: break;
+    }
 }
 
 - (void)delayChanged:(UITextField *)sender {
@@ -339,6 +595,7 @@ static void showRecallToast(NSString *text) {
 }
 
 @end
+
 
 // ============================================================
 //  5. 设置页入口（新接口 WCTableViewManager，适配 8.0.70）
