@@ -1,0 +1,9 @@
+Package: com.yourname.hellotweak
+Name: HelloTweak
+Version: 0.0.1-1
+Architecture: iphoneos-arm64
+Description: 学习用第一个插件：打开"设置"时弹出欢迎提示
+Maintainer: Your Name <you@example.com>
+Author: Your Name <you@example.com>
+Section: Tweaks
+Depends: mobilesubstrate (>= 0.9.5000), firmware (>= 15.0)
