@@ -26,8 +26,10 @@ TWEAK_NAME = HelloTweak
 # 源代码文件列表（多个文件用空格隔开）
 HelloTweak_FILES = Tweak.x
 
-# 开启 ARC（自动内存管理，写 OC 代码更省心）
-HelloTweak_CFLAGS = -fobjc-arc
+# 编译参数：
+#   -fobjc-arc                   开启 ARC 自动内存管理
+#   -Wno-deprecated-declarations 忽略"过时 API"警告（学习用插件无妨）
+HelloTweak_CFLAGS = -fobjc-arc -Wno-deprecated-declarations
 
 # 链接的系统框架
 HelloTweak_FRAMEWORKS = UIKit
