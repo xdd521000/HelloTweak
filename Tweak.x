@@ -1,50 +1,39 @@
 //
-//  HelloTweak.x
-//  第一个越狱插件：打开"设置"App 时，弹出欢迎提示框
+//  Tweak.x — 微信版插件
+//  打开微信后，弹出一个欢迎提示框
 //
-//  ★ Logos 语法三大关键词 ★
-//    %hook 类名    —— 开始"钩住"一个类（拦截它的方法）
-//    %orig         —— 调用被替换方法的"原始实现"（必须先调用，保证原功能正常）
-//    %end          —— 结束钩子
-//
-//  学习顺序：先看懂这段，再去看 README 的逐行讲解
+//  这次用 %ctor（插件加载时自动运行的代码）来弹窗，
+//  不依赖微信内部的类名，更稳定
 //
 
 #import <UIKit/UIKit.h>
 
-// PSListController 是"设置"App 的私有类，编译器不认识它，所以手动声明一下
-// （"设置"里每一个页面都是这个类的子类）
-@interface PSListController : UITableViewController
-@end
+// 弹窗函数：保证只弹一次
+static void showHelloPopup(void) {
+    static BOOL shown = NO;
+    if (shown) return;
 
-// static 静态变量：整个 App 生命周期内只初始化一次
-// 这里用来记录"已经弹过窗了"，保证提示只出现一次
-static BOOL alertShown = NO;
-
-%hook PSListController
-
-// 页面完全显示出来后调用（此时窗口已经就绪，适合弹窗）
-- (void)viewDidAppear:(BOOL)animated {
-    %orig; // ① 先执行原始的 viewDidAppear，保证页面正常显示
-
-    // ② 如果已经弹过提示，就直接返回
-    if (alertShown) return;
-    alertShown = YES;
-
-    // ③ 创建弹窗（UIAlertController 是系统自带的弹窗控件）
-    UIAlertController *alert = [UIAlertController
-        alertControllerWithTitle:@"🎉 HelloTweak 已生效"
-                         message:@"这是你的第一个越狱插件！\n\n设备：iPhone 14 Pro Max\n系统：iOS 16.2\n越狱：Dopamine"
-                  preferredStyle:UIAlertControllerStyleAlert];
-
-    // 加一个"知道了"按钮
-    [alert addAction:[UIAlertAction actionWithTitle:@"知道了"
-                                              style:UIAlertActionStyleDefault
-                                            handler:nil]];
-
-    // ④ 找到"设置"App 的主窗口，把弹窗显示出来
+    // 拿到微信的主窗口（注意：这里用了过时的 windows，已在 Makefile 里忽略警告）
     UIWindow *window = [UIApplication sharedApplication].windows.firstObject;
+    if (!window || !window.rootViewController) return;
+
+    shown = YES;
+
+    UIAlertController *alert = [UIAlertController
+        alertControllerWithTitle:@"🎉 微信插件已生效"
+                         message:@"这是你的微信版越狱插件！\n\n设备：iPhone 14 Pro Max\n系统：iOS 16.2\n越狱：Dopamine"
+                  preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleDefault handler:nil]];
+
     [window.rootViewController presentViewController:alert animated:YES completion:nil];
 }
 
-%end
+// %ctor：插件被加载进微信时自动执行（相当于程序入口）
+// 分 5 次尝试弹窗（2秒、4秒…10秒），确保微信窗口已就绪，弹一次就停
+%ctor {
+    for (NSInteger i = 0; i < 5; i++) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * (i + 1) * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            showHelloPopup();
+        });
+    }
+}
