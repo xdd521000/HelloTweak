@@ -10,16 +10,14 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Theos
         run: |
+          export THEOS="$HOME/theos"
           git clone --recursive https://github.com/theos/theos.git "$THEOS"
           "$THEOS/setup.sh" || true
-        env:
-          THEOS: "$HOME/theos"
+          echo "THEOS=$THEOS" >> "$GITHUB_ENV"
       - name: Build
         run: |
           make clean
           make package
-        env:
-          THEOS: "$HOME/theos"
       - uses: actions/upload-artifact@v4
         with:
           name: HelloTweak-deb
