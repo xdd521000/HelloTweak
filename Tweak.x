@@ -1,11 +1,11 @@
 //
 //  Tweak.x — 小叮当（微信增强插件）
 //  功能：
-//    1. 微信设置页「小叮当」入口（新接口 WCTableViewManager，适配 8.0.70）
+//    1. 通过「插件收纳」(WCPluginsMgr) 注册到 微信→我→插件 页面
 //    2. 主菜单分两类：常用功能（防撤回/撤回提示）、红包功能（自动抢红包）
 //    3. 防撤回开关 + 自定义撤回提示语
 //    4. 自动抢红包（延迟秒数 / 只抢群聊 / 只抢单聊 / 防重复）
-//  说明：不弹窗，所有设置都在微信设置里操作。
+//  说明：不弹窗，所有设置都在插件页面里操作。
 //
 
 #import <UIKit/UIKit.h>
@@ -96,6 +96,20 @@ static void setXddWallpaperData(NSData *d) {
     [p synchronize];
 }
 
+// 压缩图片尺寸，防止保存太大
+static UIImage *xddResizedImage(UIImage *image, CGFloat maxDim) {
+    CGFloat w = image.size.width;
+    CGFloat h = image.size.height;
+    if (w <= maxDim && h <= maxDim) return image;
+    CGFloat ratio = MIN(maxDim / w, maxDim / h);
+    CGSize newSize = CGSizeMake(floorf(w * ratio), floorf(h * ratio));
+    UIGraphicsBeginImageContextWithOptions(newSize, NO, 1.0);
+    [image drawInRect:CGRectMake(0, 0, newSize.width, newSize.height)];
+    UIImage *newImage = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    return newImage ?: image;
+}
+
 // 开发者信息
 static NSString *xddDevName(void) {
     NSString *n = [xddPrefs() stringForKey:kDevNameKey];
@@ -122,6 +136,39 @@ static void markSendIdGrabbed(NSString *sendId) {
     if (list.count > 500) [list removeObjectsInRange:NSMakeRange(0, list.count - 500)]; // 只留最近500个
     [p setObject:list forKey:kGrabbedSendIdsKey];
     [p synchronize];
+}
+
+// 插件收纳接入：让「小叮当」出现在 微信→我→插件 页面
+@interface WCPluginsMgr : NSObject
++ (instancetype)sharedInstance;
+- (void)registerControllerWithTitle:(NSString *)title version:(NSString *)version controller:(NSString *)controller;
+- (void)registerSwitchWithTitle:(NSString *)title key:(NSString *)key;
+@end
+
+static BOOL xddShelfRegistered = NO;
+static void xddRegisterShelf(void) {
+    if (xddShelfRegistered) return;
+    Class cls = NSClassFromString(@"WCPluginsMgr");
+    if (!cls) return;
+    WCPluginsMgr *mgr = [cls sharedInstance];
+    if (!mgr) return;
+    [mgr registerControllerWithTitle:@"小叮当" version:@"0.0.11" controller:@"XDDSettingsViewController"];
+    xddShelfRegistered = YES;
+}
+
+%ctor {
+    xddRegisterShelf();
+    if (!xddShelfRegistered) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            xddRegisterShelf();
+        });
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            xddRegisterShelf();
+        });
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(6.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            xddRegisterShelf();
+        });
+    }
 }
 
 // ============================================================
@@ -232,17 +279,47 @@ static void showRecallToast(NSString *text) {
 //  4. 小叮当设置页（深空蓝调：主菜单 + 常用功能 + 红包功能）
 // ============================================================
 
+// 长按换壁纸倒计时相关状态
+static UILabel *xddWpOverlay = nil;
+static NSTimer *xddWpTicker = nil;
+static NSInteger xddWpRemain = 5;
+static BOOL xddWpArmed = NO;
+
+
 static UIColor *xddDeepSpaceColor(void) {
     return [UIColor colorWithRed:0.04 green:0.07 blue:0.13 alpha:1.0];
 }
 
 @interface XDDSettingsViewController : UIViewController <UIImagePickerControllerDelegate, UINavigationControllerDelegate>
+- (UIButton *)xddMenuCellWithTitle:(NSString *)title y:(CGFloat)y tag:(NSInteger)tag;
+- (void)menuTapped:(UIButton *)sender;
+- (void)xddWallpaperLongPress:(UILongPressGestureRecognizer *)gr;
+- (void)xddWpShowOverlay;
+- (void)xddWpTick;
+- (void)xddWpCancel;
+- (void)xddOpenWallpaperPicker;
+- (void)imagePickerController:(UIImagePickerController *)picker didFinishPickingMediaWithInfo:(NSDictionary *)info;
+- (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker;
+- (void)xddDevLabelLongPress:(UILongPressGestureRecognizer *)gr;
+- (void)xddPromptNewDevName;
+- (void)xddRefreshDevLabel;
+- (void)viewDidDisappear:(BOOL)animated;
 @end
 
 @interface XDDCommonViewController : UIViewController
+- (UIView *)xddCardWithFrame:(CGRect)frame;
+- (UISwitch *)xddSwitchInCard:(UIView *)card on:(BOOL)on tag:(NSInteger)tag;
+- (UILabel *)xddLabelInCard:(UIView *)card text:(NSString *)text;
+- (void)switchChanged:(UISwitch *)sender;
+- (void)noticeChanged:(UITextField *)sender;
 @end
 
 @interface XDDRedPacketViewController : UIViewController
+- (UIView *)xddCardWithFrame:(CGRect)frame;
+- (UISwitch *)xddSwitchInCard:(UIView *)card on:(BOOL)on tag:(NSInteger)tag;
+- (UILabel *)xddLabelInCard:(UIView *)card text:(NSString *)text;
+- (void)switchChanged:(UISwitch *)sender;
+- (void)delayChanged:(UITextField *)sender;
 @end
 
 @implementation XDDSettingsViewController
@@ -295,10 +372,20 @@ static UIColor *xddDeepSpaceColor(void) {
     UIButton *redBtn = [self xddMenuCellWithTitle:@"红包功能" y:278 tag:2];
     [self.view addSubview:redBtn];
 
-    // 长按背景 5 秒 → 弹出相册换壁纸
+    // 长按背景 5 秒 → 弹出相册换壁纸（带倒计时提示，按满 5 秒自动打开相册）
     UILongPressGestureRecognizer *wpLp = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(xddWallpaperLongPress:)];
-    wpLp.minimumPressDuration = 5.0;
+    wpLp.minimumPressDuration = 0.5;
+    wpLp.cancelsTouchesInView = NO;
+    wpLp.allowableMovement = 80.0;
     [self.view addGestureRecognizer:wpLp];
+
+    // 底部提示（长按玩法）
+    UILabel *hintLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 370, self.view.bounds.size.width - 40, 30)];
+    hintLabel.text = @"长按背景 5 秒换壁纸 · 长按开发者信息改签名";
+    hintLabel.font = [UIFont systemFontOfSize:11];
+    hintLabel.textColor = [UIColor colorWithRed:0.35 green:0.48 blue:0.65 alpha:1.0];
+    hintLabel.textAlignment = NSTextAlignmentCenter;
+    [self.view addSubview:hintLabel];
 }
 
 - (UIButton *)xddMenuCellWithTitle:(NSString *)title y:(CGFloat)y tag:(NSInteger)tag {
@@ -338,7 +425,60 @@ static UIColor *xddDeepSpaceColor(void) {
 
 // 长按背景 5 秒 → 弹出相册选照片设为壁纸
 - (void)xddWallpaperLongPress:(UILongPressGestureRecognizer *)gr {
-    if (gr.state != UIGestureRecognizerStateBegan) return;
+    if (gr.state == UIGestureRecognizerStateBegan) {
+        // 已有弹窗（比如正在改开发者信息）时，不启动换壁纸倒计时
+        if (self.presentedViewController) return;
+        xddWpRemain = 5;
+        xddWpArmed = YES;
+        [self xddWpShowOverlay];
+        xddWpTicker = [NSTimer scheduledTimerWithTimeInterval:1.0 target:self selector:@selector(xddWpTick) userInfo:nil repeats:YES];
+    } else if (gr.state == UIGestureRecognizerStateEnded ||
+               gr.state == UIGestureRecognizerStateCancelled ||
+               gr.state == UIGestureRecognizerStateFailed) {
+        [self xddWpCancel];
+    }
+}
+
+- (void)xddWpShowOverlay {
+    if (xddWpOverlay) return;
+    UILabel *l = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, 250, 62)];
+    l.center = CGPointMake(self.view.bounds.size.width / 2, self.view.bounds.size.height / 2 - 40);
+    l.backgroundColor = [UIColor colorWithWhite:0 alpha:0.78];
+    l.textColor = [UIColor whiteColor];
+    l.font = [UIFont boldSystemFontOfSize:15];
+    l.textAlignment = NSTextAlignmentCenter;
+    l.numberOfLines = 2;
+    l.layer.cornerRadius = 14;
+    l.layer.masksToBounds = YES;
+    l.text = [NSString stringWithFormat:@"继续按住 %ld 秒换壁纸\n松开可取消", (long)xddWpRemain];
+    [self.view addSubview:l];
+    xddWpOverlay = l;
+}
+
+- (void)xddWpTick {
+    if (!xddWpArmed) { [self xddWpCancel]; return; }
+    xddWpRemain--;
+    if (xddWpRemain <= 0) {
+        xddWpArmed = NO;
+        [xddWpTicker invalidate];
+        xddWpTicker = nil;
+        [xddWpOverlay removeFromSuperview];
+        xddWpOverlay = nil;
+        [self xddOpenWallpaperPicker];
+    } else if (xddWpOverlay) {
+        xddWpOverlay.text = [NSString stringWithFormat:@"继续按住 %ld 秒换壁纸\n松开可取消", (long)xddWpRemain];
+    }
+}
+
+- (void)xddWpCancel {
+    xddWpArmed = NO;
+    [xddWpTicker invalidate];
+    xddWpTicker = nil;
+    [xddWpOverlay removeFromSuperview];
+    xddWpOverlay = nil;
+}
+
+- (void)xddOpenWallpaperPicker {
     if ([UIImagePickerController isSourceTypeAvailable:UIImagePickerControllerSourceTypePhotoLibrary]) {
         UIImagePickerController *picker = [[UIImagePickerController alloc] init];
         picker.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
@@ -353,13 +493,15 @@ static UIColor *xddDeepSpaceColor(void) {
     if (!image) image = info[UIImagePickerControllerOriginalImage];
     [picker dismissViewControllerAnimated:YES completion:nil];
     if (!image) return;
-    NSData *data = UIImageJPEGRepresentation(image, 0.8);
+    UIImage *finalImage = xddResizedImage(image, 1280);
+    NSData *data = UIImageJPEGRepresentation(finalImage, 0.85);
     setXddWallpaperData(data);
     UIImageView *bg = [[UIImageView alloc] initWithFrame:self.view.bounds];
-    bg.image = image;
+    bg.image = finalImage;
     bg.contentMode = UIViewContentModeScaleAspectFill;
     bg.clipsToBounds = YES;
     [self.view insertSubview:bg atIndex:0];
+    showRecallToast(@"✅ 壁纸已设置");
 }
 
 - (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker {
@@ -409,6 +551,11 @@ static UIColor *xddDeepSpaceColor(void) {
     if (devLabel && [devLabel isKindOfClass:[UILabel class]]) {
         devLabel.text = [NSString stringWithFormat:@"开发者：%@", xddDevName()];
     }
+}
+
+- (void)viewDidDisappear:(BOOL)animated {
+    [super viewDidDisappear:animated];
+    [self xddWpCancel];
 }
 
 @end
@@ -478,7 +625,7 @@ static UIColor *xddDeepSpaceColor(void) {
     [self.view addSubview:hint];
 
     UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(20, 520, self.view.bounds.size.width - 40, 30)];
-    ver.text = @"小叮当 v0.0.9 ｜ 适配 iOS 16.2 / Dopamine";
+    ver.text = @"小叮当 v0.0.11 ｜ 适配 iOS 16.2 / Dopamine";
     ver.font = [UIFont systemFontOfSize:12];
     ver.textColor = [UIColor colorWithRed:0.28 green:0.38 blue:0.52 alpha:1.0];
     ver.textAlignment = NSTextAlignmentCenter;
@@ -570,7 +717,7 @@ static UIColor *xddDeepSpaceColor(void) {
     [self.view addSubview:hint];
 
     UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(20, 520, self.view.bounds.size.width - 40, 30)];
-    ver.text = @"小叮当 v0.0.9 ｜ 适配 iOS 16.2 / Dopamine";
+    ver.text = @"小叮当 v0.0.11 ｜ 适配 iOS 16.2 / Dopamine";
     ver.font = [UIFont systemFontOfSize:12];
     ver.textColor = [UIColor colorWithRed:0.28 green:0.38 blue:0.52 alpha:1.0];
     ver.textAlignment = NSTextAlignmentCenter;
@@ -598,83 +745,7 @@ static UIColor *xddDeepSpaceColor(void) {
 
 
 // ============================================================
-//  5. 设置页入口（新接口 WCTableViewManager，适配 8.0.70）
-// ============================================================
-
-@interface NewSettingViewController : UIViewController
-@end
-
-@interface WCTableViewManager : NSObject
-- (long long)numberOfSectionsInTableView:(UITableView *)tableView;
-- (long long)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section;
-- (id)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath;
-- (double)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath;
-- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath;
-@end
-
-%hook WCTableViewManager
-
-// 判断表格是不是微信设置页（通过响应链找到 NewSettingViewController）
-static BOOL xddIsSettingsTable(UITableView *tableView) {
-    if (!tableView) return NO;
-    id next = [tableView nextResponder];
-    if ([next isKindOfClass:NSClassFromString(@"NewSettingViewController")]) return YES;
-    next = [next nextResponder];
-    if ([next isKindOfClass:NSClassFromString(@"NewSettingViewController")]) return YES;
-    return NO;
-}
-
-- (long long)numberOfSectionsInTableView:(UITableView *)tableView {
-    long long n = %orig;
-    if (xddIsSettingsTable(tableView)) return n + 1; // 设置页多加一组
-    return n;
-}
-
-- (long long)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    if (xddIsSettingsTable(tableView) && section == [self numberOfSectionsInTableView:tableView] - 1) {
-        return 1; // 一组一行：小叮当入口
-    }
-    return %orig;
-}
-
-- (id)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (xddIsSettingsTable(tableView) && indexPath.section == [self numberOfSectionsInTableView:tableView] - 1) {
-        UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"xddCell"];
-        if (!cell) cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"xddCell"];
-        cell.textLabel.text = @"🔔 小叮当";
-        cell.textLabel.textColor = [UIColor colorWithRed:0.10 green:0.48 blue:0.20 alpha:1.0];
-        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-        return cell;
-    }
-    return %orig;
-}
-
-- (double)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (xddIsSettingsTable(tableView) && indexPath.section == [self numberOfSectionsInTableView:tableView] - 1) {
-        return 50;
-    }
-    return %orig;
-}
-
-- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (xddIsSettingsTable(tableView) && indexPath.section == [self numberOfSectionsInTableView:tableView] - 1) {
-        [tableView deselectRowAtIndexPath:indexPath animated:YES];
-        id vc = [tableView nextResponder];
-        if (![vc isKindOfClass:NSClassFromString(@"NewSettingViewController")]) vc = [vc nextResponder];
-        UINavigationController *nav = [vc navigationController];
-        if (nav) {
-            XDDSettingsViewController *page = [[XDDSettingsViewController alloc] init];
-            [nav pushViewController:page animated:YES];
-        }
-        return;
-    }
-    %orig;
-}
-
-%end
-
-// ============================================================
-//  6. 防撤回 + 自定义提示
+//  5. 防撤回 + 自定义提示
 // ============================================================
 
 @interface CMessageMgr : NSObject
@@ -697,7 +768,7 @@ static BOOL xddIsSettingsTable(UITableView *tableView) {
 }
 
 // ============================================================
-//  7. 自动抢红包
+//  6. 自动抢红包
 // ============================================================
 
 - (void)AsyncOnAddMsg:(id)msg MsgWrap:(id)wrap {
