@@ -1,10 +1,9 @@
 Package: com.yourname.hellotweak
 Name: 小叮当
-Version: 0.0.5-1
+Version: 0.0.6-1
 Architecture: iphoneos-arm64
-Description: 小叮当：微信增强插件（欢迎提示 + 防撤回 + 版本体检）
+Description: 小叮当：微信设置页防撤回开关
 Maintainer: Your Name <you@example.com>
 Author: Your Name <you@example.com>
 Section: Tweaks
 Depends: mobilesubstrate (>= 0.9.5000), firmware (>= 15.0)
-t't
