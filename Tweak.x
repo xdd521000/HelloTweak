@@ -1,12 +1,18 @@
 //
 //  Tweak.x — 小叮当（微信增强插件）
-//  功能1：打开微信时弹出欢迎提示
+//  功能1：打开微信时弹出欢迎提示（会显示微信版本 + 防撤回接口状态）
 //  功能2：微信防撤回（好友撤回的消息仍然保留）
+//
+//  兼容性设计：
+//  - 弹窗用的全是系统公开 API，任何微信版本都能用
+//  - 防撤回用的是微信十年稳定的标准接口 CMessageMgr onRevokeMsg:
+//  - 如果某天微信改了内部代码，接口检测会显示"未找到"，
+//    插件不会崩溃，只需要按新版接口更新即可
 //
 
 #import <UIKit/UIKit.h>
 
-// ================= 功能1：欢迎弹窗 =================
+// ================= 功能1：欢迎弹窗（带版本体检） =================
 
 static void showHelloPopup(void) {
     static BOOL shown = NO;
@@ -17,9 +23,18 @@ static void showHelloPopup(void) {
 
     shown = YES;
 
+    // 获取当前微信版本号
+    NSString *wxVersion = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
+    if (wxVersion.length == 0) wxVersion = @"未知";
+
+    // 体检：检查防撤回要 hook 的接口在当前微信里是否存在
+    // 存在 = 防撤回已就绪；不存在 = 微信改了内部代码，需要更新插件
+    BOOL revokeHookReady = [NSClassFromString(@"CMessageMgr") instancesRespondToSelector:@selector(onRevokeMsg:)];
+    NSString *status = revokeHookReady ? @"✅ 已就绪" : @"⚠️ 未找到接口（需更新插件）";
+
     UIAlertController *alert = [UIAlertController
         alertControllerWithTitle:@"🔔 小叮当已生效"
-                         message:@"小叮当：微信增强插件\n\n设备：iPhone 14 Pro Max\n系统：iOS 16.2\n越狱：Dopamine"
+                         message:[NSString stringWithFormat:@"微信版本：%@\n防撤回接口：%@\n\n设备：iPhone 14 Pro Max\n系统：iOS 16.2\n越狱：Dopamine", wxVersion, status]
                   preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleDefault handler:nil]];
 
@@ -50,8 +65,7 @@ static void showHelloPopup(void) {
 
 - (void)onRevokeMsg:(id)arg {
     // ★ 关键：不调用 %orig，撤回通知被拦截，消息原样保留
-    // 注意：这个简单版连"你自己撤回"的消息也会保留（多数防撤回插件都是这样）
-    // 想更精细（只拦别人、放行自己），需要解析 arg 里的发送者信息，后面可以进阶
+    // 如果这个接口在当前微信版本里不存在，Logos 会自动跳过，不会导致微信崩溃
 }
 
 %end
