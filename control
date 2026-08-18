@@ -1,8 +1,8 @@
 Package: com.yourname.hellotweak
 Name: 小叮当
-Version: 0.0.8-2
+Version: 0.0.9-1
 Architecture: iphoneos-arm64
-Description: 小叮当：微信防撤回 + 自定义提示语 + 自动抢红包（适配微信8.0.70）
+Description: 小叮当：防撤回 + 自定义壁纸 + 自动抢红包（适配微信8.0.70）
 Maintainer: Your Name <you@example.com>
 Author: Your Name <you@example.com>
 Section: Tweaks
