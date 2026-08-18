@@ -1,8 +1,8 @@
 Package: com.yourname.hellotweak
 Name: HelloTweak
-Version: 0.0.2-1
+Version: 0.0.3-1
 Architecture: iphoneos-arm64
-Description: 学习用插件：打开微信时弹出欢迎提示
+Description: 微信增强：欢迎提示 + 防撤回
 Maintainer: Your Name <you@example.com>
 Author: Your Name <you@example.com>
 Section: Tweaks
