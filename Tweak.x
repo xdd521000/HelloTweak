@@ -185,6 +185,7 @@ static void showRecallToast(NSString *text) {
 - (void)OpenRedEnvelopesRequest:(id)params;
 - (void)ReceiverQueryRedEnvelopesRequest:(id)arg1;
 - (void)OnWCToHongbaoCommonResponse:(id)arg1 Request:(id)arg2;
+- (NSDictionary *)xddJsonToDict:(NSString *)json;
 @end
 
 @interface HongBaoRes : NSObject
@@ -347,6 +348,11 @@ static void showRecallToast(NSString *text) {
 @end
 
 @interface WCTableViewManager : NSObject
+- (long long)numberOfSectionsInTableView:(UITableView *)tableView;
+- (long long)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section;
+- (id)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath;
+- (double)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath;
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath;
 @end
 
 %hook WCTableViewManager
@@ -417,6 +423,7 @@ static BOOL xddIsSettingsTable(UITableView *tableView) {
 @interface CMessageMgr : NSObject
 - (void)onRevokeMsg:(id)arg;
 - (void)AsyncOnAddMsg:(id)msg MsgWrap:(id)wrap;
+- (void)xddHandleRedEnvelopMessage:(id)wrap;
 @end
 
 %hook CMessageMgr
