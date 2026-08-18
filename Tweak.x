@@ -152,6 +152,7 @@ static void xddRegisterShelf(void) {
     if (!cls) return;
     WCPluginsMgr *mgr = [cls sharedInstance];
     if (!mgr) return;
+    if (![mgr respondsToSelector:@selector(registerControllerWithTitle:version:controller:)]) return;
     [mgr registerControllerWithTitle:@"小叮当" version:@"0.0.11" controller:@"XDDSettingsViewController"];
     xddShelfRegistered = YES;
 }
