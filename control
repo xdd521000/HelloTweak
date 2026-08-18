@@ -1,8 +1,8 @@
 Package: com.yourname.hellotweak
-Name: HelloTweak
-Version: 0.0.3-1
+Name: 小叮当
+Version: 0.0.4-1
 Architecture: iphoneos-arm64
-Description: 微信增强：欢迎提示 + 防撤回
+Description: 小叮当：微信增强插件（欢迎提示 + 防撤回）
 Maintainer: Your Name <you@example.com>
 Author: Your Name <you@example.com>
 Section: Tweaks
