@@ -9,6 +9,7 @@
 //
 
 #import <UIKit/UIKit.h>
+#import <QuartzCore/QuartzCore.h>
 
 // ============================================================
 //  1. 设置存取
@@ -153,7 +154,7 @@ static void xddRegisterShelf(void) {
     WCPluginsMgr *mgr = [cls sharedInstance];
     if (!mgr) return;
     if (![mgr respondsToSelector:@selector(registerControllerWithTitle:version:controller:)]) return;
-    [mgr registerControllerWithTitle:@"小叮当" version:@"0.0.11" controller:@"XDDSettingsViewController"];
+    [mgr registerControllerWithTitle:@"小叮当" version:@"0.0.13" controller:@"XDDSettingsViewController"];
     xddShelfRegistered = YES;
 }
 
@@ -280,6 +281,114 @@ static void showRecallToast(NSString *text) {
 //  4. 小叮当设置页（深空蓝调：主菜单 + 常用功能 + 红包功能）
 // ============================================================
 
+// 液态开关：关闭=深色玻璃，开启=蓝色液态发光
+@interface XDDLiquidSwitch : UIControl
+@property(nonatomic, getter=isOn) BOOL on;
+- (void)setOn:(BOOL)on animated:(BOOL)animated;
+@end
+
+@implementation XDDLiquidSwitch {
+    CAGradientLayer *_xddTrack;
+    CALayer *_xddThumb;
+    CALayer *_xddWave;
+    CALayer *_xddGloss;
+}
+
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    if (self) {
+        [self xddSetup];
+    }
+    return self;
+}
+
+- (void)xddSetup {
+    CGFloat w = self.bounds.size.width;
+    CGFloat h = self.bounds.size.height;
+    CGFloat r = h / 2;
+
+    _xddTrack = [CAGradientLayer layer];
+    _xddTrack.frame = self.bounds;
+    _xddTrack.cornerRadius = r;
+    _xddTrack.masksToBounds = YES;
+    _xddTrack.borderWidth = 1.0;
+    _xddTrack.borderColor = [UIColor colorWithWhite:1.0 alpha:0.20].CGColor;
+    [self.layer addSublayer:_xddTrack];
+
+    // 底部水波（开启时可见）
+    _xddWave = [CALayer layer];
+    _xddWave.frame = CGRectMake(-10, h - 10, w + 20, 16);
+    _xddWave.cornerRadius = 10;
+    _xddWave.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.22].CGColor;
+    _xddWave.opacity = 0.0;
+    [self.layer addSublayer:_xddWave];
+
+    // 顶部液态光泽
+    _xddGloss = [CALayer layer];
+    _xddGloss.frame = CGRectMake(w * 0.10, 5, w * 0.80, h * 0.28);
+    _xddGloss.cornerRadius = _xddGloss.bounds.size.height / 2;
+    _xddGloss.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.40].CGColor;
+    [self.layer addSublayer:_xddGloss];
+
+    // 白色滑块
+    CGFloat ts = h - 10;
+    _xddThumb = [CALayer layer];
+    _xddThumb.bounds = CGRectMake(0, 0, ts, ts);
+    _xddThumb.cornerRadius = ts / 2;
+    _xddThumb.backgroundColor = [UIColor colorWithRed:0.95 green:0.97 blue:1.0 alpha:1.0].CGColor;
+    _xddThumb.shadowColor = [UIColor blackColor].CGColor;
+    _xddThumb.shadowOpacity = 0.4;
+    _xddThumb.shadowRadius = 3.0;
+    _xddThumb.shadowOffset = CGSizeMake(0, 1.5);
+    [self.layer addSublayer:_xddThumb];
+
+    _on = NO;
+    [self xddApplyAnimated:NO];
+}
+
+- (void)setOn:(BOOL)on {
+    [self setOn:on animated:NO];
+}
+
+- (void)setOn:(BOOL)on animated:(BOOL)animated {
+    _on = on;
+    [self xddApplyAnimated:animated];
+}
+
+- (void)xddApplyAnimated:(BOOL)animated {
+    CGFloat w = self.bounds.size.width;
+    CGFloat h = self.bounds.size.height;
+    CGFloat ts = h - 10;
+    CGFloat x = _on ? (w - 5 - ts / 2) : (5 + ts / 2);
+
+    [CATransaction begin];
+    if (!animated) [CATransaction setDisableActions:YES];
+    _xddThumb.position = CGPointMake(x, h / 2);
+    if (_on) {
+        _xddTrack.colors = @[(id)[UIColor colorWithRed:0.35 green:0.70 blue:1.0 alpha:1.0].CGColor,
+                             (id)[UIColor colorWithRed:0.12 green:0.43 blue:0.88 alpha:1.0].CGColor];
+        _xddTrack.borderColor = [UIColor colorWithRed:0.45 green:0.75 blue:1.0 alpha:0.60].CGColor;
+        _xddWave.opacity = 1.0;
+    } else {
+        _xddTrack.colors = @[(id)[UIColor colorWithWhite:1.0 alpha:0.12].CGColor,
+                             (id)[UIColor colorWithWhite:1.0 alpha:0.02].CGColor];
+        _xddTrack.borderColor = [UIColor colorWithWhite:1.0 alpha:0.20].CGColor;
+        _xddWave.opacity = 0.0;
+    }
+    [CATransaction commit];
+}
+
+- (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    [super touchesEnded:touches withEvent:event];
+    _on = !_on;
+    [self xddApplyAnimated:YES];
+    [self sendActionsForControlEvents:UIControlEventValueChanged];
+}
+
+@end
+
+
+
 // 长按换壁纸倒计时相关状态
 static UILabel *xddWpOverlay = nil;
 static NSTimer *xddWpTicker = nil;
@@ -309,17 +418,17 @@ static UIColor *xddDeepSpaceColor(void) {
 
 @interface XDDCommonViewController : UIViewController
 - (UIView *)xddCardWithFrame:(CGRect)frame;
-- (UISwitch *)xddSwitchInCard:(UIView *)card on:(BOOL)on tag:(NSInteger)tag;
+- (XDDLiquidSwitch *)xddSwitchInCard:(UIView *)card on:(BOOL)on tag:(NSInteger)tag;
 - (UILabel *)xddLabelInCard:(UIView *)card text:(NSString *)text;
-- (void)switchChanged:(UISwitch *)sender;
+- (void)switchChanged:(XDDLiquidSwitch *)sender;
 - (void)noticeChanged:(UITextField *)sender;
 @end
 
 @interface XDDRedPacketViewController : UIViewController
 - (UIView *)xddCardWithFrame:(CGRect)frame;
-- (UISwitch *)xddSwitchInCard:(UIView *)card on:(BOOL)on tag:(NSInteger)tag;
+- (XDDLiquidSwitch *)xddSwitchInCard:(UIView *)card on:(BOOL)on tag:(NSInteger)tag;
 - (UILabel *)xddLabelInCard:(UIView *)card text:(NSString *)text;
-- (void)switchChanged:(UISwitch *)sender;
+- (void)switchChanged:(XDDLiquidSwitch *)sender;
 - (void)delayChanged:(UITextField *)sender;
 @end
 
@@ -573,10 +682,10 @@ static UIColor *xddDeepSpaceColor(void) {
     return card;
 }
 
-- (UISwitch *)xddSwitchInCard:(UIView *)card on:(BOOL)on tag:(NSInteger)tag {
-    UISwitch *sw = [[UISwitch alloc] initWithFrame:CGRectMake(card.bounds.size.width - 62, 13, 50, 30)];
-    sw.on = on;
+- (XDDLiquidSwitch *)xddSwitchInCard:(UIView *)card on:(BOOL)on tag:(NSInteger)tag {
+    XDDLiquidSwitch *sw = [[XDDLiquidSwitch alloc] initWithFrame:CGRectMake(card.bounds.size.width - 88, 7, 76, 42)];
     sw.tag = tag;
+    sw.on = on;
     [sw addTarget:self action:@selector(switchChanged:) forControlEvents:UIControlEventValueChanged];
     [card addSubview:sw];
     return sw;
@@ -626,14 +735,14 @@ static UIColor *xddDeepSpaceColor(void) {
     [self.view addSubview:hint];
 
     UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(20, 520, self.view.bounds.size.width - 40, 30)];
-    ver.text = @"小叮当 v0.0.11 ｜ 适配 iOS 16.2 / Dopamine";
+    ver.text = @"小叮当 v0.0.13 ｜ 适配 iOS 16.2 / Dopamine";
     ver.font = [UIFont systemFontOfSize:12];
     ver.textColor = [UIColor colorWithRed:0.28 green:0.38 blue:0.52 alpha:1.0];
     ver.textAlignment = NSTextAlignmentCenter;
     [self.view addSubview:ver];
 }
 
-- (void)switchChanged:(UISwitch *)sender {
+- (void)switchChanged:(XDDLiquidSwitch *)sender {
     switch (sender.tag) {
         case 101: setAntiRevokeEnabled(sender.isOn); break;
         case 102: setRevokeToastEnabled(sender.isOn); break;
@@ -659,10 +768,10 @@ static UIColor *xddDeepSpaceColor(void) {
     return card;
 }
 
-- (UISwitch *)xddSwitchInCard:(UIView *)card on:(BOOL)on tag:(NSInteger)tag {
-    UISwitch *sw = [[UISwitch alloc] initWithFrame:CGRectMake(card.bounds.size.width - 62, 13, 50, 30)];
-    sw.on = on;
+- (XDDLiquidSwitch *)xddSwitchInCard:(UIView *)card on:(BOOL)on tag:(NSInteger)tag {
+    XDDLiquidSwitch *sw = [[XDDLiquidSwitch alloc] initWithFrame:CGRectMake(card.bounds.size.width - 88, 7, 76, 42)];
     sw.tag = tag;
+    sw.on = on;
     [sw addTarget:self action:@selector(switchChanged:) forControlEvents:UIControlEventValueChanged];
     [card addSubview:sw];
     return sw;
@@ -718,14 +827,14 @@ static UIColor *xddDeepSpaceColor(void) {
     [self.view addSubview:hint];
 
     UILabel *ver = [[UILabel alloc] initWithFrame:CGRectMake(20, 520, self.view.bounds.size.width - 40, 30)];
-    ver.text = @"小叮当 v0.0.11 ｜ 适配 iOS 16.2 / Dopamine";
+    ver.text = @"小叮当 v0.0.13 ｜ 适配 iOS 16.2 / Dopamine";
     ver.font = [UIFont systemFontOfSize:12];
     ver.textColor = [UIColor colorWithRed:0.28 green:0.38 blue:0.52 alpha:1.0];
     ver.textAlignment = NSTextAlignmentCenter;
     [self.view addSubview:ver];
 }
 
-- (void)switchChanged:(UISwitch *)sender {
+- (void)switchChanged:(XDDLiquidSwitch *)sender {
     switch (sender.tag) {
         case 103: setAutoRedEnvelopEnabled(sender.isOn); break;
         case 105: setGrabGroupChatEnabled(sender.isOn); break;
